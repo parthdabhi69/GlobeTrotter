@@ -82,7 +82,7 @@ const Signup = () => {
         
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           
-          <div style={{ display: 'flex', gap: '1rem' }}>
+          <div className="auth-row">
             <div className="auth-input-container">
               <User size={16} className="auth-icon" />
               <input type="text" placeholder="First Name" className="auth-input" value={firstName} onChange={e => setFirstName(e.target.value)} required />
@@ -93,7 +93,7 @@ const Signup = () => {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '1rem' }}>
+          <div className="auth-row">
             <div className="auth-input-container">
               <Mail size={16} className="auth-icon" />
               <input type="email" placeholder="Email Address" className="auth-input" value={email} onChange={e => setEmail(e.target.value)} required />
@@ -104,7 +104,7 @@ const Signup = () => {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '1rem' }}>
+          <div className="auth-row">
             <div className="auth-input-container">
               <Building size={16} className="auth-icon" />
               <input type="text" placeholder="City" className="auth-input" value={city} onChange={e => setCity(e.target.value)} />
