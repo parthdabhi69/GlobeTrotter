@@ -1,488 +1,295 @@
 # destination/services.py
 import os
 import requests
-import re
+from dotenv import load_dotenv
 
-# ============================================================
-# API URLS
-# ============================================================
+load_dotenv()
 
-GEOAPIFY_GEOCODING_URL = "https://api.geoapify.com/v1/geocode/search"
-GEOAPIFY_PLACES_URL = "https://api.geoapify.com/v2/places"
-GEOAPIFY_DETAILS_URL = "https://api.geoapify.com/v2/place-details"
-WIKIPEDIA_SEARCH_URL = "https://en.wikipedia.org/w/rest.php/v1/search/page"
-
-# ============================================================
-# IMAGE FILTERING - EXPANDED
-# ============================================================
-
-BAD_IMAGE_TERMS = [
-    # Sports
-    "football", "soccer", "basketball", "cricket", "rugby",
-    "baseball", "hockey", "tennis", "golf", "volleyball",
-    "badminton", "table tennis", "handball", "water polo",
-    "football club", "soccer club", "basketball club",
-    "cricket club", "rugby club", "club", "team", "player",
-    "footballer", "athlete", "stadium", "arena", "logo",
-    "badge", "crest", "emblem", "jersey", "kit", "coach",
-    "manager", "league", "championship", "tournament",
-    "sports", "fc", "cf", "sc", "ac", "sporting",
-    
-    # Generic/Non-landmark
-    "flag", "map", "icon", "symbol", "illustration",
-    "drawing", "painting", "artwork", "graphic",
-    
-    # People
-    "portrait", "person", "people", "crowd", "fan",
-    
-    # Food (unless it's a food destination)
-    "pizza", "burger", "pasta", "sushi", "taco",
-]
-
-# ============================================================
-# HIGH QUALITY IMAGE FILTERS
-# ============================================================
-
-def is_low_quality_image(image_url):
-    """Check if image is likely low quality or blurry."""
-    if not image_url:
-        return True
-    
-    # Check for small image dimensions (blurry)
-    if "width=" in image_url:
-        match = re.search(r'width=(\d+)', image_url)
-        if match and int(match.group(1)) < 400:
-            return True
-    
-    # Check for thumbnail indicators
-    low_quality_patterns = [
-        r'thumb/',
-        r'/thumb/',
-        r'_\d+px-',
-        r'-\d+x\d+',
-        r'scale-to-width-down/\d+',
-    ]
-    
-    for pattern in low_quality_patterns:
-        if re.search(pattern, image_url, re.IGNORECASE):
-            return True
-    
-    return False
-
-def enhance_image_url(image_url):
-    """Get higher quality version of the image."""
-    if not image_url:
-        return ""
-    
-    # Remove thumbnail restrictions
-    # Wikipedia: replace size with larger
-    if "wikipedia" in image_url:
-        # Remove size constraints
-        image_url = re.sub(r'/\d+px-', '/1024px-', image_url)
-        image_url = re.sub(r'-\d+x\d+\.', '.', image_url)
-    
-    # Ensure HTTPS
-    if image_url.startswith("//"):
-        image_url = "https:" + image_url
-    
-    return image_url
-
-# ============================================================
-# GEOAPIFY API KEY
-# ============================================================
-
-def get_geoapify_key():
-    api_key = os.getenv("GEOAPIFY_API_KEY")
-    if not api_key:
-        raise RuntimeError("GEOAPIFY_API_KEY is missing from .env")
-    return api_key
-
-# ============================================================
-# CHECK WHETHER WIKIPEDIA RESULT IS A BAD IMAGE
-# ============================================================
-
-def is_bad_wikipedia_result(title, description=""):
-    text = f"{title} {description}".lower()
-    
-    # Check for sports/team keywords
-    for term in BAD_IMAGE_TERMS:
-        if term in text:
-            return True
-    
-    # Additional check: if it has "FC", "SC", etc.
-    if re.search(r'\b(fc|cf|sc|ac|united|city|rovers|wanderers)\b', text, re.IGNORECASE):
-        if "football" in text or "soccer" in text:
-            return True
-    
-    return False
-
-# ============================================================
-# WIKIPEDIA IMAGE - IMPROVED
-# ============================================================
-
-def get_wikipedia_image(place_name, city="", country=""):
-    if not place_name:
-        return ""
-    
-    # Clean place name - remove common suffixes
-    clean_name = re.sub(r'\s*(city|town|village|region|province|state)$', '', place_name, flags=re.IGNORECASE)
-    
-    search_query = " ".join(part for part in [clean_name, city, country] if part)
-    
-    params = {
-        "q": search_query,
-        "limit": 10,
-    }
-    
-    headers = {
-        "User-Agent": "GlobeTrotter/1.0 (travel-planning-project)"
-    }
-    
-    try:
-        response = requests.get(WIKIPEDIA_SEARCH_URL, params=params, headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        for page in data.get("pages", []):
-            title = page.get("title", "")
-            description = page.get("description", "")
-            
-            # Reject sports/team/etc.
-            if is_bad_wikipedia_result(title, description):
-                continue
-            
-            thumbnail = page.get("thumbnail")
-            if not thumbnail:
-                continue
-            
-            image_url = thumbnail.get("url")
-            if not image_url:
-                continue
-            
-            # Fix protocol-relative URLs
-            if image_url.startswith("//"):
-                image_url = "https:" + image_url
-            
-            # Enhance image quality
-            image_url = enhance_image_url(image_url)
-            
-            # Skip low quality images
-            if is_low_quality_image(image_url):
-                continue
-            
-            return image_url
-            
-    except requests.RequestException as error:
-        print("Wikipedia image error:", error)
-    
-    return ""
-
-# ============================================================
-# GEOAPIFY PLACE IMAGE - IMPROVED
-# ============================================================
-
-def get_place_image(place_id):
-    if not place_id:
-        return ""
-    
-    params = {
-        "id": place_id,
-        "features": "details",
-        "lang": "en",
-        "apiKey": get_geoapify_key(),
-    }
-    
-    try:
-        response = requests.get(GEOAPIFY_DETAILS_URL, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        for feature in data.get("features", []):
-            properties = feature.get("properties", {})
-            if properties.get("feature_type") != "details":
-                continue
-            
-            wiki_and_media = properties.get("wiki_and_media", {})
-            image = wiki_and_media.get("image", "")
-            
-            if image:
-                # Enhance image quality
-                image = enhance_image_url(image)
-                if not is_low_quality_image(image):
-                    return image
-                
-    except requests.RequestException as error:
-        print("Geoapify image error:", error)
-    
-    return ""
-
-# ============================================================
-# FIND BEST IMAGE - IMPROVED
-# ============================================================
-
-def get_best_destination_image(name, city="", country="", place_id=""):
-    # Try Geoapify first (usually better quality)
-    image = get_place_image(place_id)
-    if image:
-        return image
-    
-    # Try Wikipedia with better search
-    image = get_wikipedia_image(name, city, country)
-    if image:
-        return image
-    
-    # Try with just city and country if name failed
-    if city and country:
-        image = get_wikipedia_image(city, "", country)
-        if image:
-            return image
-    
-    # Try with just country as last resort
-    if country:
-        image = get_wikipedia_image(country, "", "")
-        if image:
-            return image
-    
-    return ""
-
-# ============================================================
-# GLOBAL GEOCODING
-# ============================================================
-
-def geocode_global(query):
-    if not query:
-        return []
-    
-    params = {
-        "text": query,
-        "filter": "countrycode:none",
-        "limit": 10,
-        "lang": "en",
-        "apiKey": get_geoapify_key(),
-    }
-    
-    response = requests.get(GEOAPIFY_GEOCODING_URL, params=params, timeout=10)
-    response.raise_for_status()
-    data = response.json()
-    return data.get("results", [])
-
-# ============================================================
-# NORMALIZE GEOCODING RESULT
-# ============================================================
-
-def normalize_geocoding_result(result):
-    place_id = result.get("place_id", "")
-    
-    name = (
-        result.get("name") or 
-        result.get("city") or 
-        result.get("address_line1") or 
-        result.get("formatted") or 
-        "Unnamed destination"
-    )
-    
-    # Clean up name
-    name = re.sub(r',\s*[^,]+$', '', name)  # Remove everything after last comma
-    
-    city = result.get("city", "")
-    country = result.get("country", "")
-    latitude = result.get("lat")
-    longitude = result.get("lon")
-    
-    image = get_best_destination_image(name, city, country, place_id)
-    
-    return {
-        "id": place_id,
-        "name": name,
-        "country": country,
-        "city": city,
-        "latitude": latitude,
-        "longitude": longitude,
-        "image": image,
-        "formatted": result.get("formatted", ""),
-        "categories": result.get("categories", []),
-    }
-
-# ============================================================
-# NORMALIZE PLACE RESULT
-# ============================================================
-
-def normalize_place(feature):
-    properties = feature.get("properties", {})
-    geometry = feature.get("geometry", {})
-    coordinates = geometry.get("coordinates", [])
-    
-    longitude = None
-    latitude = None
-    if isinstance(coordinates, list) and len(coordinates) >= 2:
-        longitude = coordinates[0]
-        latitude = coordinates[1]
-    
-    place_id = properties.get("place_id", "")
-    
-    name = (
-        properties.get("name") or 
-        properties.get("address_line1") or 
-        properties.get("formatted") or 
-        "Unnamed destination"
-    )
-    
-    city = properties.get("city", "")
-    country = properties.get("country", "")
-    
-    image = get_best_destination_image(name, city, country, place_id)
-    
-    return {
-        "id": place_id,
-        "name": name,
-        "country": country,
-        "city": city,
-        "latitude": latitude,
-        "longitude": longitude,
-        "image": image,
-        "formatted": properties.get("formatted", ""),
-        "categories": properties.get("categories", []),
-    }
-
-# ============================================================
-# GET TOURIST PLACES AROUND A DESTINATION
-# ============================================================
-
-def get_places_for_location(latitude, longitude, radius=50000, limit=20):
-    if latitude is None or longitude is None:
-        return []
-    
-    params = {
-        "categories": "tourism.sights,tourism.attraction,tourism",
-        "filter": f"circle:{longitude},{latitude},{radius}",
-        "bias": f"proximity:{longitude},{latitude}",
-        "limit": limit,
-        "lang": "en",
-        "apiKey": get_geoapify_key(),
-    }
-    
-    response = requests.get(GEOAPIFY_PLACES_URL, params=params, timeout=10)
-    response.raise_for_status()
-    data = response.json()
-    
-    destinations = []
-    for feature in data.get("features", []):
-        destination = normalize_place(feature)
-        destinations.append(destination)
-    
-    return destinations
-
-# ============================================================
-# SEARCH DESTINATIONS - FIXED
-# ============================================================
-
-def search_destinations(query):
-    query = query.strip()
-    if not query:
-        return []
-    
-    try:
-        results = geocode_global(query)
-        if not results:
-            return []
-        
-        # Direct amenity results
-        direct_results = []
-        for result in results:
-            result_type = result.get("result_type", "")
-            if result_type == "amenity":
-                destination = normalize_geocoding_result(result)
-                direct_results.append(destination)
-        
-        if direct_results:
-            return direct_results
-        
-        # Search around best result
-        best_result = results[0]
-        latitude = best_result.get("lat")
-        longitude = best_result.get("lon")
-        
-        if latitude is None or longitude is None:
-            return [normalize_geocoding_result(best_result)]
-        
-        destinations = get_places_for_location(latitude, longitude, radius=50000, limit=20)
-        
-        if not destinations:
-            return [normalize_geocoding_result(best_result)]
-        
-        return destinations
-        
-    except Exception as error:
-        print(f"Search error: {error}")
-        return []
-
-# ============================================================
-# GLOBAL POPULAR DESTINATIONS - FIXED
-# ============================================================
 
 def get_global_popular_destinations():
-    """Global dashboard destinations - no location bias."""
+    """Return 25+ real destinations with high-quality, professional images"""
     
-    popular_queries = [
-        "Paris France",
-        "Tokyo Japan", 
-        "London United Kingdom",
-        "Dubai United Arab Emirates",
-        "New York United States",
-        "Rome Italy",
-        "Singapore",
-        "Barcelona Spain",
-        "Sydney Australia",
-        "Bangkok Thailand",
-        "Istanbul Turkey",
-        "Mumbai India",
-        "Cape Town South Africa",
-        "Rio de Janeiro Brazil",
-        "Marrakech Morocco",
-        "Prague Czech Republic",
-        "Amsterdam Netherlands",
-        "Oslo Norway",
-        "San Francisco United States",
-        "Chicago United States",
+    return [
+        # === EUROPE ===
+        {
+            "id": "1",
+            "name": "Eiffel Tower",
+            "country": "France",
+            "city": "Paris",
+            "latitude": 48.8584,
+            "longitude": 2.2945,
+            "image": "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Eiffel Tower, Paris, France"
+        },
+        {
+            "id": "2",
+            "name": "Colosseum",
+            "country": "Italy",
+            "city": "Rome",
+            "latitude": 41.8902,
+            "longitude": 12.4922,
+            "image": "https://images.unsplash.com/photo-1552832230-c0197dd311b5?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Colosseum, Rome, Italy"
+        },
+        {
+            "id": "3",
+            "name": "Big Ben",
+            "country": "United Kingdom",
+            "city": "London",
+            "latitude": 51.5007,
+            "longitude": -0.1246,
+            "image": "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Big Ben, London, UK"
+        },
+        {
+            "id": "4",
+            "name": "Sagrada Familia",
+            "country": "Spain",
+            "city": "Barcelona",
+            "latitude": 41.4036,
+            "longitude": 2.1744,
+            "image": "https://images.unsplash.com/photo-1583422409516-2895a77efded?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Sagrada Familia, Barcelona, Spain"
+        },
+        {
+            "id": "5",
+            "name": "Neuschwanstein Castle",
+            "country": "Germany",
+            "city": "Schwangau",
+            "latitude": 47.5576,
+            "longitude": 10.7498,
+            "image": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT0zDQsljmigu2B0LS8JHQCsUwdNXwJitIr8wVlf9w6Zg&s",
+            "formatted": "Neuschwanstein Castle, Germany"
+        },
+        {
+            "id": "6",
+            "name": "Acropolis of Athens",
+            "country": "Greece",
+            "city": "Athens",
+            "latitude": 37.9715,
+            "longitude": 23.7257,
+            "image": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTIaxQuLSPLVHrCkBELvpNyfF9kQEJtCUTIor3rMAKc7A&s=10",
+            "formatted": "Acropolis, Athens, Greece"
+        },
+        {
+            "id": "7",
+            "name": "Amsterdam Canals",
+            "country": "Netherlands",
+            "city": "Amsterdam",
+            "latitude": 52.3676,
+            "longitude": 4.9041,
+            "image": "https://images.unsplash.com/photo-1534351590666-13e3e96b5017?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Amsterdam Canals, Netherlands"
+        },
+
+        # === ASIA ===
+        {
+            "id": "8",
+            "name": "Tokyo Tower",
+            "country": "Japan",
+            "city": "Tokyo",
+            "latitude": 35.6586,
+            "longitude": 139.7454,
+            "image": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTy-0eGkOowDJ0U6gIdLlGweIaJDLIL-6oDcvanLd3QBQ&s=10",
+            "formatted": "Tokyo Tower, Tokyo, Japan"
+        },
+        {
+            "id": "9",
+            "name": "Taj Mahal",
+            "country": "India",
+            "city": "Agra",
+            "latitude": 27.1751,
+            "longitude": 78.0421,
+            "image": "https://images.unsplash.com/photo-1564507592333-c60657eea523?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Taj Mahal, Agra, India"
+        },
+        {
+            "id": "10",
+            "name": "Marina Bay Sands",
+            "country": "Singapore",
+            "city": "Singapore",
+            "latitude": 1.2834,
+            "longitude": 103.8607,
+            "image": "https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Marina Bay Sands, Singapore"
+        },
+        {
+            "id": "11",
+            "name": "Burj Khalifa",
+            "country": "UAE",
+            "city": "Dubai",
+            "latitude": 25.1972,
+            "longitude": 55.2744,
+            "image": "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Burj Khalifa, Dubai, UAE"
+        },
+        {
+            "id": "12",
+            "name": "Great Wall of China",
+            "country": "China",
+            "city": "Beijing",
+            "latitude": 40.4319,
+            "longitude": 116.5704,
+            "image": "https://images.unsplash.com/photo-1508804185872-d7badad00f7d?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Great Wall, Beijing, China"
+        },
+        {
+            "id": "13",
+            "name": "Petronas Towers",
+            "country": "Malaysia",
+            "city": "Kuala Lumpur",
+            "latitude": 3.1579,
+            "longitude": 101.7117,
+            "image": "https://images.unsplash.com/photo-1573487507483-86c6f1430ef1?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Petronas Towers, Kuala Lumpur, Malaysia"
+        },
+        {
+            "id": "14",
+            "name": "Angkor Wat",
+            "country": "Cambodia",
+            "city": "Siem Reap",
+            "latitude": 13.4125,
+            "longitude": 103.8660,
+            "image": "https://images.unsplash.com/photo-1559738007-04a277d08a8c?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Angkor Wat, Siem Reap, Cambodia"
+        },
+
+        # === NORTH AMERICA ===
+        {
+            "id": "15",
+            "name": "Statue of Liberty",
+            "country": "USA",
+            "city": "New York",
+            "latitude": 40.6892,
+            "longitude": -74.0445,
+            "image": "https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Statue of Liberty, New York, USA"
+        },
+        {
+            "id": "16",
+            "name": "Golden Gate Bridge",
+            "country": "USA",
+            "city": "San Francisco",
+            "latitude": 37.8199,
+            "longitude": -122.4783,
+            "image": "https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Golden Gate Bridge, San Francisco, USA"
+        },
+        {
+            "id": "17",
+            "name": "CN Tower",
+            "country": "Canada",
+            "city": "Toronto",
+            "latitude": 43.6426,
+            "longitude": -79.3871,
+            "image": "https://images.unsplash.com/photo-1570790586853-4b1877114a2a?w=800&h=500&fit=crop&auto=format",
+            "formatted": "CN Tower, Toronto, Canada"
+        },
+
+        # === SOUTH AMERICA ===
+        {
+            "id": "18",
+            "name": "Christ the Redeemer",
+            "country": "Brazil",
+            "city": "Rio de Janeiro",
+            "latitude": -22.9519,
+            "longitude": -43.2105,
+            "image": "https://images.unsplash.com/photo-1483729558449-99ef09a8c325?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Christ the Redeemer, Rio de Janeiro, Brazil"
+        },
+        {
+            "id": "19",
+            "name": "Machu Picchu",
+            "country": "Peru",
+            "city": "Cusco",
+            "latitude": -13.1631,
+            "longitude": -72.5450,
+            "image": "https://images.unsplash.com/photo-1526392060635-9d6019884377?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Machu Picchu, Cusco, Peru"
+        },
+
+        # === AFRICA ===
+        {
+            "id": "20",
+            "name": "Pyramids of Giza",
+            "country": "Egypt",
+            "city": "Cairo",
+            "latitude": 29.9792,
+            "longitude": 31.1342,
+            "image": "https://images.unsplash.com/photo-1539656262152-6cb9103f1a33?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Pyramids of Giza, Cairo, Egypt"
+        },
+        {
+            "id": "21",
+            "name": "Table Mountain",
+            "country": "South Africa",
+            "city": "Cape Town",
+            "latitude": -33.9249,
+            "longitude": 18.4241,
+            "image": "https://images.unsplash.com/photo-1512831838641-e3f6e759b6bf?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Table Mountain, Cape Town, South Africa"
+        },
+
+        # === OCEANIA ===
+        {
+            "id": "22",
+            "name": "Sydney Opera House",
+            "country": "Australia",
+            "city": "Sydney",
+            "latitude": -33.8568,
+            "longitude": 151.2153,
+            "image": "https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Sydney Opera House, Sydney, Australia"
+        },
+        {
+            "id": "23",
+            "name": "Hobbiton",
+            "country": "New Zealand",
+            "city": "Matamata",
+            "latitude": -37.8720,
+            "longitude": 175.6827,
+            "image": "https://images.unsplash.com/photo-1523482580672-f109ba8cb9be?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Hobbiton, Matamata, New Zealand"
+        },
+
+        # === MIDDLE EAST ===
+        {
+            "id": "24",
+            "name": "Petra",
+            "country": "Jordan",
+            "city": "Wadi Musa",
+            "latitude": 30.3285,
+            "longitude": 35.4444,
+            "image": "https://images.unsplash.com/photo-1508009603885-50cf7c579365?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Petra, Wadi Musa, Jordan"
+        },
+        {
+            "id": "25",
+            "name": "Cappadocia Balloons",
+            "country": "Turkey",
+            "city": "Göreme",
+            "latitude": 38.6439,
+            "longitude": 34.8299,
+            "image": "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=800&h=500&fit=crop&auto=format",
+            "formatted": "Cappadocia, Göreme, Turkey"
+        }
     ]
+
+
+def search_destinations(query):
+    """Search through destinations"""
+    all_destinations = get_global_popular_destinations()
     
-    destinations = []
+    if not query or not query.strip():
+        return all_destinations
     
-    for query in popular_queries:
-        try:
-            results = geocode_global(query)
-            if not results:
-                continue
-            
-            result = results[0]
-            destination = normalize_geocoding_result(result)
-            
-            # Skip results without proper name
-            if not destination["name"] or destination["name"] == "Unnamed destination":
-                continue
-            
-            # Skip results with no image
-            if not destination["image"]:
-                continue
-            
-            # Check if image is a valid looking URL
-            if destination["image"]:
-                # Ensure it's a proper image URL
-                if not any(ext in destination["image"].lower() for ext in ['.jpg', '.jpeg', '.png', '.webp', '.svg']):
-                    continue
-                if "placeholder" in destination["image"].lower():
-                    continue
-                if "blank" in destination["image"].lower():
-                    continue
-            
-            destinations.append(destination)
-            
-            if len(destinations) >= 10:
-                break
-                
-        except requests.RequestException as error:
-            print(f"Popular destination error for {query}: {error}")
-        except Exception as error:
-            print(f"Destination processing error for {query}: {error}")
+    query_lower = query.lower().strip()
+    results = []
     
-    return destinations
+    for dest in all_destinations:
+        if (query_lower in dest['name'].lower() or 
+            query_lower in dest['country'].lower() or
+            query_lower in dest['city'].lower()):
+            results.append(dest)
+    
+    return results if results else all_destinations[:5]
