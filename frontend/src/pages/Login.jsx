@@ -23,6 +23,11 @@ const Login = () => {
     setError('');
     setLoading(true);
 
+    // Remove any old authentication data
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('user');
+
     try {
       const response = await fetch(
         'http://127.0.0.1:8000/api/users/login/',
@@ -32,7 +37,7 @@ const Login = () => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            email,
+            email: email.trim(),
             password,
           }),
         }
@@ -40,32 +45,56 @@ const Login = () => {
 
       const data = await response.json();
 
+      // Django returned an error
       if (!response.ok) {
-        if (typeof data === 'object') {
+        let message = 'Invalid email or password.';
+
+        if (typeof data === 'object' && data !== null) {
           const messages = Object.values(data)
             .flat()
+            .map((item) => String(item))
             .join(' ');
 
-          throw new Error(
-            messages || 'Invalid email or password.'
-          );
+          if (messages) {
+            message = messages;
+          }
         }
 
-        throw new Error('Invalid email or password.');
+        throw new Error(message);
       }
 
-      // Store JWT tokens
+      // =====================================================
+      // CHECK JWT RESPONSE
+      // =====================================================
+
+      if (!data.access) {
+        console.error('Login response:', data);
+
+        throw new Error(
+          'Login succeeded, but no access token was returned by the server.'
+        );
+      }
+
+      // =====================================================
+      // STORE JWT
+      // =====================================================
+
       localStorage.setItem(
         'access_token',
         data.access
       );
 
-      localStorage.setItem(
-        'refresh_token',
-        data.refresh
-      );
+      if (data.refresh) {
+        localStorage.setItem(
+          'refresh_token',
+          data.refresh
+        );
+      }
 
-      // Store logged-in user information
+      // =====================================================
+      // STORE USER
+      // =====================================================
+
       if (data.user) {
         localStorage.setItem(
           'user',
@@ -73,12 +102,18 @@ const Login = () => {
         );
       }
 
-      // Go to home/dashboard
-      navigate('/');
+      // =====================================================
+      // GO TO DASHBOARD
+      // =====================================================
+
+      navigate('/', { replace: true });
 
     } catch (err) {
+      console.error('Login error:', err);
+
       setError(
-        err.message || 'Something went wrong. Please try again.'
+        err.message ||
+        'Something went wrong. Please try again.'
       );
     } finally {
       setLoading(false);
@@ -93,13 +128,17 @@ const Login = () => {
         style={{ maxWidth: '440px' }}
       >
 
-        {/* Logo Header */}
+        {/* =================================================
+            LOGO
+        ================================================= */}
+
         <div
           style={{
             textAlign: 'center',
             marginBottom: '2rem'
           }}
         >
+
           <div
             style={{
               display: 'flex',
@@ -109,6 +148,7 @@ const Login = () => {
               marginBottom: '0.5rem'
             }}
           >
+
             <div
               style={{
                 background: 'var(--color-primary)',
@@ -132,6 +172,7 @@ const Login = () => {
             >
               GlobeTrotter
             </h1>
+
           </div>
 
           <p
@@ -142,15 +183,21 @@ const Login = () => {
           >
             Plan your journey. Discover the world.
           </p>
+
         </div>
 
-        {/* Welcome Text */}
+
+        {/* =================================================
+            WELCOME
+        ================================================= */}
+
         <div
           style={{
             textAlign: 'center',
             marginBottom: '2rem'
           }}
         >
+
           <h2
             style={{
               fontSize: '1.5rem',
@@ -169,9 +216,14 @@ const Login = () => {
           >
             Continue planning your next adventure.
           </p>
+
         </div>
 
-        {/* Error Message */}
+
+        {/* =================================================
+            ERROR
+        ================================================= */}
+
         {error && (
           <div
             style={{
@@ -180,7 +232,8 @@ const Login = () => {
               padding: '0.75rem',
               borderRadius: '0.5rem',
               marginBottom: '1.5rem',
-              border: '1px solid var(--color-error)',
+              border:
+                '1px solid var(--color-error)',
               fontSize: '0.9rem',
               textAlign: 'center'
             }}
@@ -189,7 +242,11 @@ const Login = () => {
           </div>
         )}
 
-        {/* Login Form */}
+
+        {/* =================================================
+            LOGIN FORM
+        ================================================= */}
+
         <form
           onSubmit={handleSubmit}
           style={{
@@ -199,7 +256,8 @@ const Login = () => {
           }}
         >
 
-          {/* Email */}
+          {/* EMAIL */}
+
           <div className="auth-input-container">
 
             <Mail
@@ -215,12 +273,15 @@ const Login = () => {
               onChange={(e) =>
                 setEmail(e.target.value)
               }
+              autoComplete="email"
               required
             />
 
           </div>
 
-          {/* Password */}
+
+          {/* PASSWORD */}
+
           <div className="auth-input-container">
 
             <Lock
@@ -236,6 +297,7 @@ const Login = () => {
               onChange={(e) =>
                 setPassword(e.target.value)
               }
+              autoComplete="current-password"
               required
             />
 
@@ -246,7 +308,9 @@ const Login = () => {
 
           </div>
 
-          {/* Submit Button */}
+
+          {/* LOGIN BUTTON */}
+
           <button
             type="submit"
             className="auth-btn"
@@ -277,7 +341,11 @@ const Login = () => {
 
         </form>
 
-        {/* Signup Link */}
+
+        {/* =================================================
+            SIGNUP
+        ================================================= */}
+
         <div
           style={{
             textAlign: 'center',
@@ -286,6 +354,7 @@ const Login = () => {
             color: '#475569'
           }}
         >
+
           New to GlobeTrotter?{' '}
 
           <Link
@@ -297,9 +366,11 @@ const Login = () => {
           >
             Create an account
           </Link>
+
         </div>
 
       </div>
+
     </div>
   );
 };

@@ -18,8 +18,7 @@ from django.contrib import admin
 from django.urls import path,include
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path(
-        "api/users/",
-        include("users.urls")
-    ),
+    path('api/users/', include('users.urls')),
+    path('api/trips/', include('trips.urls')),  # Notice 'apps.trips'
+    path('api/destinations/', include('destination.urls')),
 ]
