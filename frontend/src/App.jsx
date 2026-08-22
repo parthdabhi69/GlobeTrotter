@@ -7,6 +7,9 @@ import CreateTrip from './pages/CreateTrip';
 import MyTrips from './pages/MyTrips';
 import ItineraryView from './pages/ItineraryView';
 import Profile from './pages/Profile';
+import Explore from './pages/Explore';
+import Community from './pages/Community';
+import Calendar from './pages/Calendar';
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children }) => {
@@ -33,6 +36,9 @@ function App() {
           <Route path="create-trip" element={<CreateTrip />} />
           <Route path="trip/:id" element={<ItineraryView />} />
           <Route path="profile" element={<Profile />} />
+          <Route path="explore" element={<Explore />} />
+          <Route path="community" element={<Community />} />
+          <Route path="calendar" element={<Calendar />} />
         </Route>
       </Routes>
     </Router>
