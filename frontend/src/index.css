@@ -8,13 +8,13 @@
   --color-secondary-hover: #db2777;
   --color-accent: #14b8a6; /* Teal */
   
-  /* Neutral Palette - Dark Mode Inspired */
-  --color-bg: #0f172a;
-  --color-surface: #1e293b;
-  --color-surface-hover: #334155;
-  --color-text: #f8fafc;
-  --color-text-muted: #94a3b8;
-  --color-border: #334155;
+  /* Neutral Palette - Light Mode Inspired */
+  --color-bg: #f8fafc; /* Light gray background */
+  --color-surface: #ffffff; /* White cards */
+  --color-surface-hover: #f1f5f9;
+  --color-text: #0f172a; /* Dark text */
+  --color-text-muted: #64748b;
+  --color-border: #e2e8f0;
 
   /* Status Colors */
   --color-success: #10b981;
@@ -275,4 +275,14 @@ button {
   .auth-btn {
     padding: 0.75rem;
   }
+}
+
+/* Utilities */
+button {
+  background: none;
+  border: none;
+  font-family: inherit;
+}
+.hover-bg:hover {
+  background: var(--color-surface-hover);
 }
