@@ -1,28 +1,41 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import Layout from './components/Layout';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import Dashboard from './pages/Dashboard';
+import CreateTrip from './pages/CreateTrip';
+import MyTrips from './pages/MyTrips';
+import ItineraryView from './pages/ItineraryView';
+import Profile from './pages/Profile';
+
+// Protected Route wrapper
+const ProtectedRoute = ({ children }) => {
+  const isAuthenticated = !!localStorage.getItem('token');
+  return isAuthenticated ? children : <Navigate to="/login" replace />;
+};
 
 function App() {
   return (
-    <BrowserRouter>
+    <Router>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
-
-        {/* Temporary home route */}
-        <Route
-          path="/"
-          element={<Navigate to="/login" replace />}
-        />
-
-        {/* Any unknown URL */}
-        <Route
-          path="*"
-          element={<Navigate to="/login" replace />}
-        />
+        
+        {/* Protected Routes inside Layout */}
+        <Route path="/" element={
+          <ProtectedRoute>
+            <Layout />
+          </ProtectedRoute>
+        }>
+          <Route index element={<Dashboard />} />
+          <Route path="my-trips" element={<MyTrips />} />
+          {/* We will add these routes later in Phase 4 */}
+          <Route path="create-trip" element={<CreateTrip />} />
+          <Route path="trip/:id" element={<ItineraryView />} />
+          <Route path="profile" element={<Profile />} />
+        </Route>
       </Routes>
-    </BrowserRouter>
+    </Router>
   );
 }
 
