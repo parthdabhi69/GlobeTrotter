@@ -2,7 +2,7 @@
 
 GlobeTrotter is a full-stack travel planning web application that helps users discover destinations, create and manage trips, organize itineraries, track budgets, and manage their travel profile.
 
-The project uses a React frontend with a Django REST Framework backend and PostgreSQL database. Destination information and location images are retrieved through external APIs rather than relying on static JSON destination data.
+The project uses a React frontend with a Django REST Framework backend and PostgreSQL database. Destination information and location images are retrieved through static JSON destination data.
 
 ---
 
